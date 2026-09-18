@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Редакция</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#editor">К редактору</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Разделы редакции">
+      <div class="brand"><span class="brand-mark">Р</span><span>Редакция</span><small id="brand-project">локальная</small></div>
+      <div class="project-switcher">
+        <label for="project-select">Проект</label>
+        <div><select id="project-select" aria-label="Текущий проект"></select><button id="project-button" class="icon-button small" type="button" aria-label="Настроить проект" title="Настроить проект">•••</button></div>
+      </div>
+      <nav class="mode-nav" aria-label="Режим работы">
+        <button class="mode-button active" data-mode="editor" type="button">Редактор</button>
+        <button class="mode-button" data-mode="calendar" type="button">Календарь</button>
+        <button class="mode-button" data-mode="archive" type="button">Опубликовано</button>
+      </nav>
+      <nav id="topic-nav" class="topic-nav" aria-label="Темы"></nav>
+      <div class="sidebar-footer">
+        <button class="icon-button" id="members-button" type="button" aria-label="Участники команды" title="Команда">♙</button>
+        <button class="icon-button" id="settings-button" type="button" aria-label="Открыть настройки" title="Настройки">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4-2.1-1 .1-2.3-2.2-2.2-2.3.8L13.4 5h-2.8L9.5 7.3l-2.3-.8L5 8.7l.1 2.3L3 12l2.1 1-.1 2.3 2.2 2.2 2.3-.8 1.1 2.3h2.8l1.1-2.3 2.3.8 2.2-2.2-.1-2.3L21 12Z"/></svg>
+        </button>
+        <div><strong id="settings-state">Настройки</strong><span id="codex-state">Проверяем Codex…</span></div>
+      </div>
+    </aside>
+
+    <main id="editor-mode" class="workspace mode-view">
+      <section class="queue-panel" aria-labelledby="queue-title">
+        <header class="panel-header">
+          <div><p class="eyebrow">План материалов</p><h1 id="queue-title">Очередь</h1></div>
+          <div class="queue-header-actions"><button id="ideas-button" class="button button-secondary" type="button">Подобрать идеи</button><button id="new-post-button" class="button button-accent" type="button">+ Новая идея</button></div>
+        </header>
+        <div class="queue-tools">
+          <label class="search-field"><span class="sr-only">Поиск</span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="search-input" type="search" placeholder="Поиск по названию и заданию"></label>
+          <label class="select-field"><span class="sr-only">Статус</span><select id="status-filter"><option value="">Все статусы</option><option value="idea">Идея</option><option value="working">В работе</option><option value="review">На проверке</option><option value="approved">Согласовано</option><option value="scheduled">Запланировано</option><option value="publishing">Публикуется</option><option value="missed">Пропущено</option><option value="failed">Ошибка</option><option value="uncertain">Нужна сверка</option></select></label>
+        </div>
+        <div id="queue-count" class="queue-count"></div>
+        <div class="queue-actions"><label class="select-visible"><input id="select-visible" type="checkbox"> Выбрать доступные</label><div><button id="trash-button" class="text-button neutral" type="button">Корзина</button></div></div>
+        <button id="bulk-delete-button" class="button button-danger bulk-delete" type="button" hidden>В корзину: <span id="selected-count">0</span></button>
+        <div id="post-list" class="post-list" role="list"></div>
+      </section>
+
+      <section id="editor" class="editor-panel" aria-live="polite">
+        <div id="empty-state" class="empty-state"><span>↗</span><h2>Выберите идею</h2><p>Здесь появятся текст, изображение, источники и точный предпросмотр.</p></div>
+        <div id="editor-content" hidden>
+          <header class="editor-header">
+            <div><div class="editor-title-row"><h2>Материал</h2><span id="post-status" class="status-pill"></span></div><button id="archive-back-button" class="text-button neutral archive-back" type="button" hidden>← К опубликованным</button></div>
+            <div class="header-actions"><span id="save-indicator" class="save-indicator">Сохранено</span><button id="save-button" class="button button-primary" type="button">Сохранить</button></div>
+          </header>
+
+                <div class="action-row"><button id="post-job-button" class="button button-accent" type="button">Сгенерировать пост</button><button id="text-job-button" class="button button-primary" type="button">Доработать текст</button><button id="image-job-button" class="button button-secondary" type="button">Создать картинку</button><button id="cancel-job-button" class="button button-danger" type="button" hidden>Остановить</button></div>
+
+          <div id="job-banner" class="job-banner" hidden></div>
+          <div id="error-banner" class="message-banner error" role="alert" hidden></div>
+          <div id="notice-banner" class="message-banner" role="status" hidden></div>
+
+          <div class="editor-grid">
+            <div class="edit-column">
+              <label class="field"><span>Срок</span><input id="due-at-input" type="datetime-local"></label>
+              <label class="field"><span>Название</span><input id="title-input" maxlength="180"></label>
+              <label class="field"><span>Задание агенту</span><textarea id="brief-input" rows="4" placeholder="Что должен подготовить агент"></textarea></label>
+
+
+              <section class="section-block" aria-labelledby="agent-title">
+                <div class="section-heading"><div><p class="eyebrow">Помощник</p><h3 id="agent-title">Работа с агентом</h3></div></div>
+                <p class="editor-help">Заполните задание и сохраните. «Сгенерировать пост» подготовит текст и картинку. Для правок напишите замечание ниже и нажмите «Доработать текст» или «Создать картинку» вверху. Замечание применяется при следующем запуске; это не чат. Результат появится в «Точном виде».</p><label class="field"><span>Замечание агенту</span><textarea id="feedback-input" rows="3" placeholder="Например: сократи вступление и добавь практический шаг"></textarea></label>
+
+                <div id="job-tasks" class="job-tasks" hidden aria-live="polite"></div>
+                <div id="duplicate-panel" class="duplicate-panel" hidden><strong>Похожий материал уже есть</strong><p id="duplicate-reason"></p><div id="duplicate-matches"></div><label class="field"><span>Новый угол</span><textarea id="override-reason" rows="2" placeholder="Объясните, чем новый материал будет отличаться"></textarea></label></div>
+              </section>
+
+              <section class="section-block" aria-labelledby="sources-title"><div class="section-heading"><div><p class="eyebrow">Проверка</p><h3 id="sources-title">Источники</h3></div></div><div id="sources-list" class="sources-list"></div></section>
+              <section class="section-block" aria-labelledby="history-title"><div class="section-heading"><div><p class="eyebrow">Версии</p><h3 id="history-title">История</h3></div></div><div id="history-list" class="history-list"></div></section>
+
+            </div>
+
+            <aside class="preview-column" aria-label="Предпросмотр публикации">
+              <div class="image-block">
+                <div id="image-preview" class="image-preview"><span>Изображение не добавлено</span></div>
+                <div class="image-actions"><label class="button button-secondary file-button">Загрузить<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="remove-image-button" class="text-button" type="button">Удалить</button></div>
+              </div>
+              <section class="telegram-preview" aria-labelledby="preview-title">
+                <div class="preview-top"><div><p class="eyebrow">Точный вид</p><h3 id="preview-title">Telegram</h3></div><button id="refresh-preview-button" class="icon-button small" type="button" aria-label="Обновить предпросмотр" title="Обновить"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.5 10A7 7 0 0 0 6 7.5L4 12m16 0-2 4.5A7 7 0 0 1 5.5 14"/></svg></button></div>
+                <div id="destination" class="destination">Адресат не настроен</div>
+                <div class="format-toolbar" role="toolbar" aria-label="Форматирование текста">
+                  <button type="button" data-format="bold"><b>Жирный</b></button><button type="button" data-format="italic"><i>Курсив</i></button><button type="button" data-format="blockquote">Цитата</button><button type="button" data-format="spoiler">Скрытый</button><button type="button" data-format="clear">Снять формат</button>
+                </div>
+                <div id="text-input" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Точный текст публикации" spellcheck="true"></div>
+                <p class="editor-help">Редактируйте здесь. Выделите текст и выберите формат. Скрытый текст отмечен серым фоном; в Telegram он откроется по нажатию.</p>
+                <details><summary>Разбиение на сообщения</summary><div id="preview-parts" class="preview-parts"></div></details>
+                <ul id="preview-issues" class="issues-list"></ul>
+              </section>
+              <section id="publication-panel" class="publication-panel" hidden></section>
+              <section id="uncertain-panel" class="uncertain-panel" hidden><h3>Проверьте Telegram вручную</h3><p>Сервер не смог подтвердить результат. Повторная отправка заблокирована, чтобы не создать дубликат.</p><label class="field"><span>ID найденных сообщений</span><input id="message-ids-input" inputmode="numeric" placeholder="Например: 124, 125"></label><button id="reconcile-button" class="button button-secondary" type="button">Подтвердить найденные сообщения</button></section>
+              <button id="publish-button" class="button button-publish" type="button">Опубликовать точную версию</button>
+              <section class="schedule-panel" aria-labelledby="schedule-title"><div class="section-heading"><h3 id="schedule-title">Согласование и план</h3></div><p id="approval-state" class="publish-hint"></p><p id="schedule-timezone" class="timezone-caption"></p><div class="schedule-controls"><input id="schedule-at-input" type="datetime-local" aria-label="Дата и время публикации"><button id="approve-button" class="button button-secondary" type="button">Согласовать версию</button><button id="schedule-button" class="button button-primary" type="button">Запланировать</button><button id="unschedule-button" class="text-button" type="button" hidden>Отменить план</button></div></section>
+              <p id="publish-hint" class="publish-hint"></p>
+            </aside>
+          </div>
+        </div>
+      </section>
+    </main>
+    <main id="calendar-mode" class="standalone-view mode-view" hidden><header class="view-header"><div><p class="eyebrow">Публикации</p><h1>Календарь</h1></div><div class="calendar-controls"><button id="calendar-prev" class="icon-button light" type="button" aria-label="Предыдущий месяц">←</button><strong id="calendar-title"></strong><button id="calendar-next" class="icon-button light" type="button" aria-label="Следующий месяц">→</button><button id="calendar-today" class="button button-secondary" type="button">Сегодня</button></div></header><div id="calendar-filters" class="calendar-filters"></div><div id="calendar-grid" class="calendar-grid"></div><section class="agenda"><h2>Повестка месяца</h2><div id="calendar-agenda" class="agenda-list"></div></section></main>
+    <main id="archive-mode" class="standalone-view mode-view" hidden><header class="view-header"><div><p class="eyebrow">История проекта</p><h1>Опубликовано</h1></div><input id="archive-search" type="search" placeholder="Поиск по опубликованным"></header><div id="archive-list" class="archive-list"></div></main>
+  </div>
+
+  <dialog id="settings-dialog" class="dialog">
+    <form method="dialog" class="dialog-card" id="settings-form">
+      <header><div><p class="eyebrow">Подключение</p><h2>Настройки редакции</h2></div><button value="cancel" class="icon-button" aria-label="Закрыть">×</button></header>
+      <div class="setup-note">Подключите Telegram-бота с правом публикации. Проверка соединения не отправляет тестовые сообщения.</div>
+      <div id="settings-error" class="message-banner error" role="alert" hidden></div>
+      <div class="status-grid"><div><span>Codex</span><strong id="codex-detail">Проверяем…</strong></div><div><span>Telegram</span><strong id="telegram-detail">Не проверен</strong></div></div>
+      <label class="field"><span>Токен отдельного бота</span><input id="token-input" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы сохранить текущий"></label>
+      <label class="field"><span>Тип адресата</span><select id="destination-type-input"><option value="forum">Форум с темами</option><option value="channel">Обычный канал</option></select></label>
+      <label class="field"><span>Username или ссылка канала</span><input id="chat-id-input" autocomplete="off" placeholder="@my_channel или https://t.me/my_channel"></label>
+      <fieldset><legend>Темы группы</legend><div id="topic-settings" class="topic-settings"></div></fieldset>
+      <footer><button id="backup-button" class="button button-secondary" type="button">Скачать резервную копию</button><button id="verify-settings-button" class="button button-secondary" type="button">Проверить подключение</button><button id="save-settings-button" class="button button-primary" type="button">Сохранить</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="project-dialog" class="dialog"><form method="dialog" class="dialog-card" id="project-form"><header><div><p class="eyebrow">Отдельный контекст</p><h2 id="project-dialog-title">Настройки проекта</h2></div><button value="cancel" class="icon-button" aria-label="Закрыть">×</button></header><div class="project-form-grid"><label class="field"><span>Название</span><input id="project-name" maxlength="80"></label><label class="field"><span>Цвет</span><input id="project-color" type="color" value="#1e45fb"></label><label class="field"><span>Аудитория</span><textarea id="project-audience" rows="2"></textarea></label><label class="field"><span>Язык</span><input id="project-language"></label><label class="field"><span>Голос</span><textarea id="project-voice" rows="3"></textarea></label><label class="field"><span>Визуальный стиль</span><textarea id="project-visual-style" rows="3"></textarea></label><label class="field"><span>Примеры</span><textarea id="project-examples" rows="3"></textarea></label><label class="field"><span>Особые инструкции</span><textarea id="project-instructions" rows="3"></textarea></label><label class="field"><span>Часовой пояс</span><input id="project-timezone" placeholder="Europe/Berlin"></label></div><fieldset><legend>Темы проекта</legend><div id="project-topics" class="project-topics"></div><button id="add-project-topic" class="text-button neutral" type="button">+ Добавить тему</button></fieldset><div id="project-error" class="message-banner error" hidden></div><footer><button id="new-project-button" class="button button-secondary" type="button">Новый проект</button><button id="save-project-button" class="button button-primary" type="button">Сохранить проект</button></footer></form></dialog>
+
+  <dialog id="team-dialog" class="dialog compact"><form method="dialog" class="dialog-card"><header><div><p class="eyebrow">Доступ</p><h2 id="team-dialog-title">Вход в редакцию</h2></div><button value="cancel" class="icon-button" aria-label="Закрыть">×</button></header><div id="team-login-fields"><label class="field"><span>Имя</span><input id="team-name" autocomplete="username"></label><label class="field"><span>Пароль</span><input id="team-password" type="password" autocomplete="current-password"></label></div><div id="team-error" class="message-banner error" hidden></div><footer><button id="team-logout" class="button button-secondary" type="button" hidden>Выйти</button><button id="team-submit" class="button button-primary" type="button">Войти</button></footer></form></dialog>
+
+  <dialog id="members-dialog" class="dialog"><div class="dialog-card"><header><div><p class="eyebrow">Команда</p><h2>Участники</h2></div><div class="dialog-actions"><button id="members-logout" class="text-button neutral" type="button">Выйти</button><button class="icon-button dialog-close" type="button" aria-label="Закрыть">×</button></div></header><div id="member-list" class="dialog-list"></div><div class="member-form"><label class="field"><span>Имя</span><input id="member-name"></label><label class="field"><span>Пароль</span><input id="member-password" type="password" autocomplete="new-password"></label><label class="field"><span>Роль</span><select id="member-role"><option value="editor">Редактор</option><option value="publisher">Публикатор</option><option value="owner">Владелец всей редакции</option></select></label><label class="field"><span>Проекты</span><select id="member-projects" multiple></select></label><button id="member-create" class="button button-primary" type="button">Добавить участника</button></div><div id="member-error" class="message-banner error" hidden></div></div></dialog>
+
+  <dialog id="new-post-dialog" class="dialog compact">
+    <form method="dialog" class="dialog-card" id="new-post-form">
+      <header><div><p class="eyebrow">Новый материал</p><h2>Добавить идею</h2></div><button value="cancel" class="icon-button" aria-label="Закрыть">×</button></header>
+      <label class="field"><span>Тема</span><select id="new-topic"></select></label>
+      <label class="field"><span>Название</span><input id="new-title" required maxlength="180"></label>
+      <label class="field"><span>Задание</span><textarea id="new-brief" rows="4"></textarea></label>
+      <div id="new-post-error" class="message-banner error" role="alert" hidden></div>
+      <footer><button value="cancel" class="button button-secondary">Отмена</button><button id="create-post-button" class="button button-primary" type="button">Создать</button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="trash-dialog" class="dialog"><div class="dialog-card"><header><div><p class="eyebrow">Удалённые материалы</p><h2>Корзина</h2></div><button class="icon-button dialog-close" type="button" aria-label="Закрыть">×</button></header><div id="trash-error" class="message-banner error" hidden></div><div id="trash-list" class="dialog-list"></div></div></dialog>
+  <dialog id="history-dialog" class="dialog"><div class="dialog-card"><header><div><p class="eyebrow">Только просмотр</p><h2 id="history-dialog-title">Версия</h2></div><button class="icon-button dialog-close" aria-label="Закрыть">×</button></header><div id="history-detail" class="version-detail"></div></div></dialog>
+  <dialog id="ideas-dialog" class="dialog"><div class="dialog-card"><header><div><p class="eyebrow">Новые направления</p><h2>Подобрать идеи</h2></div><button class="icon-button dialog-close" aria-label="Закрыть">×</button></header><div class="ideas-form"><label class="field"><span>Тема</span><select id="ideas-topic"></select></label><label class="field"><span>Количество</span><input id="ideas-count" type="number" min="1" max="10" value="5"></label></div><label class="field"><span>Пожелания</span><textarea id="ideas-feedback" rows="3"></textarea></label><div id="ideas-error" class="message-banner error" hidden></div><div class="dialog-actions"><button id="ideas-create" class="button button-primary" type="button">Начать подбор</button></div><div id="ideas-batches" class="dialog-list"></div></div></dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

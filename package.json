@@ -1,0 +1,15 @@
+{
+  "name": "telegram-editor",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Local open-source Telegram editorial workspace powered by Codex.",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT"
+}

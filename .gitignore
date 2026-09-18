@@ -1,0 +1,31 @@
+# Private editor state and backups
+data/
+private/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.pid
+*.tar.gz
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+.envrc
+.codex/
+.agents/
+auth.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# OS and local tooling
+.DS_Store
+Thumbs.db
+node_modules/
+coverage/
+*.log
+
+# Release artifacts
+*.zip
