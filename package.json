@@ -1,6 +1,6 @@
 {
   "name": "telegram-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "description": "Local open-source Telegram editorial workspace powered by Codex.",

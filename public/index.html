@@ -32,10 +32,10 @@
     </aside>
 
     <main id="editor-mode" class="workspace mode-view">
-      <section class="queue-panel" aria-labelledby="queue-title">
+      <section id="queue-panel" class="queue-panel" aria-labelledby="queue-title">
         <header class="panel-header">
           <div><p class="eyebrow">План материалов</p><h1 id="queue-title">Очередь</h1></div>
-          <div class="queue-header-actions"><button id="ideas-button" class="button button-secondary" type="button">Подобрать идеи</button><button id="new-post-button" class="button button-accent" type="button">+ Новая идея</button></div>
+          <div class="queue-header-actions"><button id="queue-close" class="icon-button small queue-close" type="button" aria-label="Скрыть очередь">×</button><button id="ideas-button" class="button button-secondary" type="button">Подобрать идеи</button><button id="new-post-button" class="button button-accent" type="button">+ Новая идея</button></div>
         </header>
         <div class="queue-tools">
           <label class="search-field"><span class="sr-only">Поиск</span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="search-input" type="search" placeholder="Поиск по названию и заданию"></label>
@@ -47,61 +47,88 @@
         <div id="post-list" class="post-list" role="list"></div>
       </section>
 
-      <section id="editor" class="editor-panel" aria-live="polite">
-        <div id="empty-state" class="empty-state"><span>↗</span><h2>Выберите идею</h2><p>Здесь появятся текст, изображение, источники и точный предпросмотр.</p></div>
-        <div id="editor-content" hidden>
-          <header class="editor-header">
-            <div><div class="editor-title-row"><h2>Материал</h2><span id="post-status" class="status-pill"></span></div><button id="archive-back-button" class="text-button neutral archive-back" type="button" hidden>← К опубликованным</button></div>
-            <div class="header-actions"><span id="save-indicator" class="save-indicator">Сохранено</span><button id="save-button" class="button button-primary" type="button">Сохранить</button></div>
+      <section id="editor" class="editor-panel">
+        <div id="empty-state" class="empty-state"><span>↗</span><h2>Выберите идею</h2><p>Здесь появятся пост в точном виде Telegram, варианты картинки и работа с агентом.</p></div>
+        <div id="editor-content" class="card-view" hidden>
+          <header class="card-header">
+            <div class="card-heading">
+              <button id="queue-toggle" class="button button-secondary queue-toggle" type="button" aria-controls="queue-panel" aria-expanded="false">☰ Очередь</button>
+              <div class="card-title-block">
+                <div class="editor-title-row"><h2 id="card-title">Материал</h2><span id="post-status" class="status-pill"></span></div>
+                <div class="card-meta"><span id="save-indicator" class="save-indicator" role="status" aria-live="polite">Сохранено</span><button id="save-retry" class="text-button neutral" type="button" hidden>Повторить</button><button id="agent-indicator" class="agent-indicator" type="button" hidden></button></div>
+                <button id="archive-back-button" class="text-button neutral archive-back" type="button" hidden>← К опубликованным</button>
+              </div>
+            </div>
+            <div class="card-actions">
+              <span id="scheduled-state" class="scheduled-state" hidden></span>
+              <button id="unschedule-button" class="button button-secondary" type="button" hidden>Снять с плана</button>
+              <button id="schedule-open-button" class="button button-secondary" type="button">Запланировать…</button>
+              <button id="publish-open-button" class="button button-primary" type="button">Опубликовать…</button>
+            </div>
           </header>
-
-                <div class="action-row"><button id="post-job-button" class="button button-accent" type="button">Сгенерировать пост</button><button id="text-job-button" class="button button-primary" type="button">Доработать текст</button><button id="image-job-button" class="button button-secondary" type="button">Создать картинку</button><button id="cancel-job-button" class="button button-danger" type="button" hidden>Остановить</button></div>
-
-          <div id="job-banner" class="job-banner" hidden></div>
+          <div id="conflict-banner" class="message-banner warning" role="alert" hidden><span>Карточку изменили в другом месте, ваши последние правки не сохранены.</span><div><button id="conflict-keep" class="button button-primary" type="button">Оставить мои правки поверх</button><button id="conflict-take" class="button button-secondary" type="button">Взять их версию</button></div></div>
           <div id="error-banner" class="message-banner error" role="alert" hidden></div>
           <div id="notice-banner" class="message-banner" role="status" hidden></div>
+          <div id="readonly-banner" class="message-banner info" hidden><span id="readonly-text"></span><button id="readonly-action" class="button button-secondary" type="button" hidden>Снять с плана и править</button></div>
 
-          <div class="editor-grid">
-            <div class="edit-column">
-              <label class="field"><span>Срок</span><input id="due-at-input" type="datetime-local"></label>
-              <label class="field"><span>Название</span><input id="title-input" maxlength="180"></label>
-              <label class="field"><span>Задание агенту</span><textarea id="brief-input" rows="4" placeholder="Что должен подготовить агент"></textarea></label>
-
-
-              <section class="section-block" aria-labelledby="agent-title">
-                <div class="section-heading"><div><p class="eyebrow">Помощник</p><h3 id="agent-title">Работа с агентом</h3></div></div>
-                <p class="editor-help">Заполните задание и сохраните. «Сгенерировать пост» подготовит текст и картинку. Для правок напишите замечание ниже и нажмите «Доработать текст» или «Создать картинку» вверху. Замечание применяется при следующем запуске; это не чат. Результат появится в «Точном виде».</p><label class="field"><span>Замечание агенту</span><textarea id="feedback-input" rows="3" placeholder="Например: сократи вступление и добавь практический шаг"></textarea></label>
-
-                <div id="job-tasks" class="job-tasks" hidden aria-live="polite"></div>
-                <div id="duplicate-panel" class="duplicate-panel" hidden><strong>Похожий материал уже есть</strong><p id="duplicate-reason"></p><div id="duplicate-matches"></div><label class="field"><span>Новый угол</span><textarea id="override-reason" rows="2" placeholder="Объясните, чем новый материал будет отличаться"></textarea></label></div>
-              </section>
-
-              <section class="section-block" aria-labelledby="sources-title"><div class="section-heading"><div><p class="eyebrow">Проверка</p><h3 id="sources-title">Источники</h3></div></div><div id="sources-list" class="sources-list"></div></section>
-              <section class="section-block" aria-labelledby="history-title"><div class="section-heading"><div><p class="eyebrow">Версии</p><h3 id="history-title">История</h3></div></div><div id="history-list" class="history-list"></div></section>
-
-            </div>
-
-            <aside class="preview-column" aria-label="Предпросмотр публикации">
-              <div class="image-block">
-                <div id="image-preview" class="image-preview"><span>Изображение не добавлено</span></div>
-                <div class="image-actions"><label class="button button-secondary file-button">Загрузить<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="remove-image-button" class="text-button" type="button">Удалить</button></div>
-              </div>
-              <section class="telegram-preview" aria-labelledby="preview-title">
-                <div class="preview-top"><div><p class="eyebrow">Точный вид</p><h3 id="preview-title">Telegram</h3></div><button id="refresh-preview-button" class="icon-button small" type="button" aria-label="Обновить предпросмотр" title="Обновить"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.5 10A7 7 0 0 0 6 7.5L4 12m16 0-2 4.5A7 7 0 0 1 5.5 14"/></svg></button></div>
-                <div id="destination" class="destination">Адресат не настроен</div>
-                <div class="format-toolbar" role="toolbar" aria-label="Форматирование текста">
-                  <button type="button" data-format="bold"><b>Жирный</b></button><button type="button" data-format="italic"><i>Курсив</i></button><button type="button" data-format="blockquote">Цитата</button><button type="button" data-format="spoiler">Скрытый</button><button type="button" data-format="clear">Снять формат</button>
+          <div class="card-grid">
+            <div class="post-column">
+              <section class="telegram-surface" aria-label="Пост в точном виде">
+                <div class="image-stage">
+                  <div id="image-preview" class="image-preview"><span>Картинки пока нет</span></div>
+                  <div id="image-overlay" class="image-overlay" hidden><span>Агент рисует картинку…</span></div>
+                  <button id="remove-image-button" class="image-remove" type="button" hidden title="Убрать картинку с поста. Она останется в вариантах.">Убрать с поста</button>
                 </div>
+                <div id="variants" class="variants-strip" aria-label="Варианты картинки"></div>
+                <div id="format-toolbar" class="format-toolbar" role="toolbar" aria-label="Форматирование текста">
+                  <button type="button" data-format="bold" title="Жирный (⌘B)"><b>Жирный</b></button><button type="button" data-format="italic" title="Курсив (⌘I)"><i>Курсив</i></button><button type="button" data-format="blockquote">Цитата</button><button type="button" data-format="spoiler">Скрытый</button><button type="button" data-format="text_link" title="Ссылка (⌘K)">Ссылка</button><button type="button" data-format="clear">Снять формат</button>
+                </div>
+                <div id="link-popover" class="link-popover" hidden>
+                  <label class="sr-only" for="link-url">Адрес ссылки</label>
+                  <input id="link-url" type="url" inputmode="url" placeholder="https://…" autocomplete="off">
+                  <button id="link-apply" class="button button-primary" type="button">Готово</button>
+                  <button id="link-remove" class="text-button" type="button">Убрать ссылку</button>
+                  <button id="link-cancel" class="text-button neutral" type="button">Отмена</button>
+                  <small id="link-error" class="inline-error" hidden></small>
+                </div>
+                <div id="links-notice" class="links-notice" role="status" hidden><span>В тексте есть Markdown-ссылки вида [текст](адрес): в Telegram они уйдут со скобками.</span><button id="convert-links-button" class="button button-secondary" type="button">Преобразовать ссылки</button></div>
                 <div id="text-input" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Точный текст публикации" spellcheck="true"></div>
-                <p class="editor-help">Редактируйте здесь. Выделите текст и выберите формат. Скрытый текст отмечен серым фоном; в Telegram он откроется по нажатию.</p>
-                <details><summary>Разбиение на сообщения</summary><div id="preview-parts" class="preview-parts"></div></details>
+                <div class="post-info-row"><span id="post-info" class="post-info"></span></div>
                 <ul id="preview-issues" class="issues-list"></ul>
               </section>
+
+              <details id="details-section" class="card-section">
+                <summary>Название, задание, срок</summary>
+                <label class="field"><span>Название</span><input id="title-input" maxlength="180"></label>
+                <label class="field"><span>Задание агенту</span><textarea id="brief-input" rows="4" placeholder="Что должен подготовить агент"></textarea></label>
+                <label class="field"><span>Срок</span><input id="due-at-input" type="datetime-local"></label>
+              </details>
+              <details class="card-section"><summary>Как уйдёт в Telegram</summary><div id="destination" class="destination">Адресат не настроен</div><div id="preview-parts" class="preview-parts"></div></details>
+              <details class="card-section"><summary>Источники <span id="sources-count"></span></summary><div id="sources-list" class="sources-list"></div></details>
+              <details class="card-section" open><summary>История <span id="history-count"></span></summary><div id="history-list" class="history-list"></div></details>
               <section id="publication-panel" class="publication-panel" hidden></section>
               <section id="uncertain-panel" class="uncertain-panel" hidden><h3>Проверьте Telegram вручную</h3><p>Сервер не смог подтвердить результат. Повторная отправка заблокирована, чтобы не создать дубликат.</p><label class="field"><span>ID найденных сообщений</span><input id="message-ids-input" inputmode="numeric" placeholder="Например: 124, 125"></label><button id="reconcile-button" class="button button-secondary" type="button">Подтвердить найденные сообщения</button></section>
-              <button id="publish-button" class="button button-publish" type="button">Опубликовать точную версию</button>
-              <section class="schedule-panel" aria-labelledby="schedule-title"><div class="section-heading"><h3 id="schedule-title">Согласование и план</h3></div><p id="approval-state" class="publish-hint"></p><p id="schedule-timezone" class="timezone-caption"></p><div class="schedule-controls"><input id="schedule-at-input" type="datetime-local" aria-label="Дата и время публикации"><button id="approve-button" class="button button-secondary" type="button">Согласовать версию</button><button id="schedule-button" class="button button-primary" type="button">Запланировать</button><button id="unschedule-button" class="text-button" type="button" hidden>Отменить план</button></div></section>
-              <p id="publish-hint" class="publish-hint"></p>
+            </div>
+
+            <aside id="agent-panel" class="agent-panel" aria-labelledby="agent-heading">
+              <div class="agent-compose">
+                <div class="agent-head"><h3 id="agent-heading">Агент</h3><span id="agent-state" class="agent-state" hidden></span></div>
+                <div class="segmented" role="radiogroup" aria-label="Что готовит агент">
+                  <label><input type="radio" name="agent-target" value="text"><span>Текст</span></label>
+                  <label><input type="radio" name="agent-target" value="image"><span>Картинка</span></label>
+                  <label><input type="radio" name="agent-target" value="post"><span>Пост целиком</span></label>
+                </div>
+                <div id="agent-mode" class="segmented small" role="radiogroup" aria-label="Что сделать с картинкой" hidden>
+                  <label><input type="radio" name="agent-mode" value="edit"><span>Доработать текущую</span></label>
+                  <label><input type="radio" name="agent-mode" value="new"><span>Нарисовать новую</span></label>
+                </div>
+                <label class="field agent-instruction"><span>Инструкция</span><textarea id="agent-instruction" rows="5" maxlength="4000"></textarea></label>
+                <div id="agent-urls" class="agent-urls" hidden></div>
+                <div id="agent-attachments" class="agent-attachments"></div>
+                <div class="agent-actions"><button id="agent-run" class="button button-accent" type="button">Запустить</button><button id="agent-stop" class="button button-danger" type="button" hidden>Остановить</button></div>
+                <p id="agent-hint" class="agent-hint"></p>
+              </div>
+              <section class="agent-log-section" aria-labelledby="agent-log-title"><h3 id="agent-log-title">Журнал</h3><div id="agent-log" class="agent-log" aria-live="polite"></div></section>
             </aside>
           </div>
         </div>
@@ -143,7 +170,8 @@
   </dialog>
 
   <dialog id="trash-dialog" class="dialog"><div class="dialog-card"><header><div><p class="eyebrow">Удалённые материалы</p><h2>Корзина</h2></div><button class="icon-button dialog-close" type="button" aria-label="Закрыть">×</button></header><div id="trash-error" class="message-banner error" hidden></div><div id="trash-list" class="dialog-list"></div></div></dialog>
-  <dialog id="history-dialog" class="dialog"><div class="dialog-card"><header><div><p class="eyebrow">Только просмотр</p><h2 id="history-dialog-title">Версия</h2></div><button class="icon-button dialog-close" aria-label="Закрыть">×</button></header><div id="history-detail" class="version-detail"></div></div></dialog>
+  <dialog id="version-dialog" class="dialog wide"><div class="dialog-card"><header><div><p class="eyebrow">История</p><h2 id="version-title">Версия</h2></div><button class="icon-button dialog-close" type="button" aria-label="Закрыть">×</button></header><p id="version-meta" class="version-meta"></p><div class="version-body"><section><h3>Текст</h3><p id="version-legend" class="diff-legend">Зелёным — что вернётся при восстановлении, зачёркнуто — что уйдёт.</p><div id="version-text" class="version-text"></div></section><section><h3>Картинка</h3><div id="version-image" class="version-image-block"></div></section><section id="version-fields" class="version-fields"></section></div><div id="version-error" class="message-banner error" role="alert" hidden></div><footer><button id="version-restore-text" class="button button-secondary" type="button">Вернуть только текст</button><button id="version-restore-all" class="button button-primary" type="button">Вернуть всю версию</button></footer></div></dialog>
+  <dialog id="publish-dialog" class="dialog"><form method="dialog" class="dialog-card"><header><div><p class="eyebrow">Публикация</p><h2 id="publish-title">Опубликовать</h2></div><button value="cancel" class="icon-button" aria-label="Закрыть">×</button></header><div class="publish-summary"><div id="publish-thumb" class="publish-thumb"></div><div class="publish-facts"><strong id="publish-destination"></strong><span id="publish-composition"></span><p id="publish-excerpt"></p></div></div><ul id="publish-issues" class="issues-list"></ul><fieldset class="publish-when"><legend>Когда</legend><label><input type="radio" name="publish-when" value="now" checked> Сейчас</label><label><input type="radio" name="publish-when" value="at"> По времени</label><input id="publish-at" type="datetime-local" aria-label="Дата и время публикации"><small id="publish-timezone" class="timezone-caption"></small></fieldset><div id="publish-error" class="message-banner error" role="alert" hidden></div><footer><button value="cancel" class="button button-secondary">Отмена</button><button id="publish-confirm" class="button button-primary" type="button">Опубликовать</button></footer></form></dialog>
   <dialog id="ideas-dialog" class="dialog"><div class="dialog-card"><header><div><p class="eyebrow">Новые направления</p><h2>Подобрать идеи</h2></div><button class="icon-button dialog-close" aria-label="Закрыть">×</button></header><div class="ideas-form"><label class="field"><span>Тема</span><select id="ideas-topic"></select></label><label class="field"><span>Количество</span><input id="ideas-count" type="number" min="1" max="10" value="5"></label></div><label class="field"><span>Пожелания</span><textarea id="ideas-feedback" rows="3"></textarea></label><div id="ideas-error" class="message-banner error" hidden></div><div class="dialog-actions"><button id="ideas-create" class="button button-primary" type="button">Начать подбор</button></div><div id="ideas-batches" class="dialog-list"></div></div></dialog>
 
   <script type="module" src="/app.js"></script>

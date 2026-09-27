@@ -1,11 +1,12 @@
 import http from 'node:http';
-import {readFileSync,mkdirSync,createReadStream} from 'node:fs';
+import {readFileSync,existsSync,mkdirSync,createReadStream} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {dirname,join,resolve,extname,basename} from 'node:path';
-import {randomUUID} from 'node:crypto';
-import {fail,assertEditable,partsFor,publicationIssues,topicName} from './domain.mjs';
+import {randomUUID,createHash} from 'node:crypto';
+import {fail,assertEditable,assertNotScheduled,assertImageFree,partsFor,publicationIssues,topicName} from './domain.mjs';
 import {Settings} from './settings.mjs';
 import {Assets} from './assets.mjs';
+import {Attachments} from './attachments.mjs';
 import {Jobs} from './jobs.mjs';
 import {CodexRunner} from './codex.mjs';
 import {Publisher} from './telegram.mjs';
@@ -20,7 +21,19 @@ import {Backups} from './backups.mjs';
 
 export const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const DEFAULT_DATA=join(ROOT,'data');
-const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp'};
+const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp'};
+// Browser modules are served from fixed lists only; shared modules are the same files the server uses.
+const BROWSER_MODULES=new Set(['api','autosave','card','variants','agent-panel','history','publish-dialog','diff']);
+const SHARED_MODULES=new Set(['urls','links']);
+// The polling state carries card summaries; the full card with history and journal is loaded when it is opened.
+const SUMMARY_OMIT=new Set(['history','agentLog','sources','comments','duplicateCheck','imageVariants']);
+function summary(post){
+ const result={};
+ for(const [key,value] of Object.entries(post))if(!SUMMARY_OMIT.has(key))result[key]=value;
+ result.logCount=post.agentLog?.length||0;result.variantCount=post.imageVariants?.length||0;
+ return result;
+}
+const SESSION=/^[a-f0-9-]{36}$/;
 const isLocal=address=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(address);
 function json(res,value,status=200){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));}
 async function body(req){
@@ -48,12 +61,13 @@ export function createApp({dataDir=DEFAULT_DATA,mediaDir,seed,runnerFactory,tran
   store.recover();
   const settings=new Settings(join(dataDir,'private/projects',id,'telegram.json'),()=>getProject().topics);
   const assets=new Assets(join(effectiveMediaDir,'projects',id),id);
+  const attachments=new Attachments(join(projectDir,'attachments'),id);
   const registry=new Registry({store});registry.sync();
-  const jobs=new Jobs({store,assets,registry,dir:join(projectDir,'jobs'),getProject,active,runnerFactory});
+  const jobs=new Jobs({store,assets,attachments,registry,dir:join(projectDir,'jobs'),getProject,active,runnerFactory});
   const ideas=new Ideas({store,registry,active,dir:join(projectDir,'ideas'),getProject,documents:database,runnerFactory});
   const publisher=new Publisher(store,()=>settings.read(),transport,image=>assets.resolve(image));
   const scheduler=new Scheduler({store,settings,publisher,registry});
-  const result={store,settings,assets,registry,jobs,ideas,publisher,scheduler,getProject};cache.set(id,result);return result;
+  const result={store,settings,assets,attachments,registry,jobs,ideas,publisher,scheduler,getProject};cache.set(id,result);return result;
  };
  for(const project of database.listProjects())services(project.id);
  const backups=new Backups({database,dataDir,mediaDir:effectiveMediaDir});
@@ -77,6 +91,11 @@ export function createApp({dataDir=DEFAULT_DATA,mediaDir,seed,runnerFactory,tran
    // The login page and its static resources contain no customer data.
    const staticFiles={'/':'index.html','/index.html':'index.html','/app.js':'app.js','/rich-text.js':'rich-text.js','/style.css':'style.css'};
    if(req.method==='GET'&&staticFiles[path]){const file=join(ROOT,'public',staticFiles[path]);res.writeHead(200,{'Content-Type':MIME[extname(file)]});return res.end(readFileSync(file));}
+   const moduleMatch=req.method==='GET'&&(path.match(/^\/js\/([a-z-]+)\.js$/)||path.match(/^\/shared\/([a-z-]+)\.mjs$/));
+   if(moduleMatch&&(path.startsWith('/js/')?BROWSER_MODULES:SHARED_MODULES).has(moduleMatch[1])){
+    const file=path.startsWith('/js/')?join(ROOT,'public/js',`${moduleMatch[1]}.js`):join(ROOT,'src/shared',`${moduleMatch[1]}.mjs`);
+    if(existsSync(file)){res.writeHead(200,{'Content-Type':MIME[extname(file)]});return res.end(readFileSync(file));}
+   }
    if(req.method==='GET'&&path==='/api/team')return json(res,{...team.status(),user:team.authenticate(req.headers.cookie)});
    if(req.method==='POST'&&['/api/team/setup','/api/team/login'].includes(path)){
     if(path.endsWith('setup')&&!isLocal(req.socket.remoteAddress))fail('Первый вход настройте на основном компьютере.',403);
@@ -115,7 +134,7 @@ export function createApp({dataDir=DEFAULT_DATA,mediaDir,seed,runnerFactory,tran
     requireOwner();const file=await backups.create();res.writeHead(200,{'Content-Type':'application/gzip','Content-Disposition':`attachment; filename="${basename(file)}"`});return createReadStream(file).pipe(res);
    }
    team.assertAccess(user,projectId,'read');
-   const ctx=services(projectId),{store,settings,assets,registry,jobs,ideas,publisher,scheduler}=ctx;
+   const ctx=services(projectId),{store,settings,assets,attachments,registry,jobs,ideas,publisher,scheduler}=ctx;
    const mutating=!['GET','HEAD'].includes(req.method);
    if(mutating){
     const action=path.startsWith('/api/settings')?'admin':/\/(publish|reconcile|approve|schedule|unschedule)$/.test(path)?'publish':'edit';
@@ -123,7 +142,11 @@ export function createApp({dataDir=DEFAULT_DATA,mediaDir,seed,runnerFactory,tran
    }
    if(req.method==='GET'&&path==='/api/state'){
     const members=team.listUsers().filter(u=>!u.disabled&&canRead(u,{id:projectId})).map(({id,name,role})=>({id,name,role}));
-    const posts=store.list();return json(res,{posts:posts.filter(p=>!p.deletedAt),trash:posts.filter(p=>p.deletedAt),topics:ctx.getProject().topics,settings:settings.public(),ideaBatches:ideas.list(),registryWarning:registry.error,backupError,projects,project:ctx.getProject(),user,members,teamEnabled:team.status().enabled});
+    const posts=store.list();
+    const payload=JSON.stringify({posts:posts.filter(p=>!p.deletedAt).map(summary),trash:posts.filter(p=>p.deletedAt).map(summary),topics:ctx.getProject().topics,settings:settings.public(),ideaBatches:ideas.list(),registryWarning:registry.error,backupError,projects,project:ctx.getProject(),user,members,teamEnabled:team.status().enabled});
+    const etag=`"${createHash('sha1').update(payload).digest('base64url')}"`;
+    if(req.headers['if-none-match']===etag){res.writeHead(304,{ETag:etag});return res.end();}
+    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8',ETag:etag});return res.end(payload);
    }
    if(req.method==='GET'&&path==='/api/registry')return json(res,{entries:registry.list(),warning:registry.error});
    if(req.method==='POST'&&path==='/api/registry/refresh'){registry.sync();return json(res,{entries:registry.list(),warning:registry.error});}
@@ -143,20 +166,34 @@ export function createApp({dataDir=DEFAULT_DATA,mediaDir,seed,runnerFactory,tran
    }
    if(req.method==='POST'&&path==='/api/settings/verify')return json(res,await settings.verify());
    if(req.method==='POST'&&path==='/api/posts'){const {topic,title,brief}=await body(req);return json(res,store.create({topic,title,brief}),201);}
-  const match=path.match(/^\/api\/posts\/(POST-\d{3,}(?:-[a-f0-9]{8})?)(?:\/(\w+))?$/);
+   const match=path.match(/^\/api\/posts\/(POST-\d{3,}(?:-[a-f0-9]{8})?)(?:\/(\w+)(?:\/([\w.-]+))?)?$/);
    if(match){
-    const [,id,action]=match;
+    const [,id,action,sub]=match;
     if(req.method==='GET'&&!action)return json(res,store.get(id));
+    if(req.method==='GET'&&action==='attachments'&&sub){store.get(id);const file=attachments.resolve(id,sub);res.writeHead(200,{'Content-Type':MIME[extname(file)]});return res.end(readFileSync(file));}
     if(req.method==='GET'&&action==='preview'){
      const p=store.get(id),s=settings.public(),issues=publicationIssues(p,s);
      return json(res,{postId:p.id,revision:p.revision,routeVersion:s.routeVersion,parts:partsFor(p),destination:s.destinationType==='channel'?`${ctx.getProject().name} · канал`:topicName(p.topic,ctx.getProject().topics),ready:issues.length===0,issues});
     }
     const b=await body(req);
-    if(req.method==='PATCH'&&!action){const {revision,...patch}=b;return json(res,store.save(id,patch,revision));}
-    if(req.method==='POST'&&action==='restore')return json(res,store.restore(id,b.revision,b.restoreRevision));
+    if(sub) {
+     if(req.method==='POST'&&action==='image'&&sub==='select')return json(res,store.selectVariant(id,b.revision,b.name,{by:user.name}));
+     if(req.method==='POST'&&action==='links'&&sub==='convert')return json(res,store.convertLinks(id,b.revision,{by:user.name}));
+     fail('Страница не найдена.',404);
+    }
+    if(req.method==='POST'&&action==='attachments'){
+     const current=store.get(id);if(current.deletedAt)fail('Карточка в корзине.',409);
+     return json(res,attachments.fromDataUrl(id,b.dataUrl,typeof b.name==='string'?b.name:''),201);
+    }
+    if(req.method==='PATCH'&&!action){
+     const {revision,session=null,...patch}=b;
+     if(session!==null&&(typeof session!=='string'||!SESSION.test(session)))fail('Некорректный сеанс правки.');
+     return json(res,store.save(id,patch,revision,{session,by:user.name}));
+    }
+    if(req.method==='POST'&&action==='restore')return json(res,store.restore(id,b.revision,b.restoreRevision,b.fields??null));
     if(req.method==='POST'&&action==='untrash')return json(res,store.untrash(id,b.revision));
     if(req.method==='DELETE'&&!action)return json(res,store.trash([{id,revision:b.revision}])[0]);
-    if(req.method==='POST'&&action==='jobs')return json(res,jobs.start(id,b.revision,b.kind,b.feedback,b.overrideReason),202);
+    if(req.method==='POST'&&action==='jobs'){const {revision,...request}=b;return json(res,jobs.start(id,revision,request,{by:user.name}),202);}
     if(req.method==='POST'&&action==='cancel')return json(res,jobs.cancel(id,b.revision));
     if(req.method==='POST'&&action==='approve')return json(res,scheduler.approve(id,b.revision,user.name));
     if(req.method==='POST'&&action==='schedule')return json(res,scheduler.schedule(id,b.revision,b,user.name));
@@ -170,10 +207,11 @@ export function createApp({dataDir=DEFAULT_DATA,mediaDir,seed,runnerFactory,tran
      return json(res,store.change(copy.id,copy.revision,p=>{p.text=source.text;p.entities=source.entities||[];p.image=source.image;p.sources=source.sources;}),201);
     }
     if(req.method==='POST'&&action==='image'){
-     assertEditable(store.get(id),b.revision);const image=assets.fromDataUrl(b.dataUrl,id);
-     return json(res,store.change(id,b.revision,p=>{p.image=image;}));
+     const current=store.get(id);assertEditable(current,b.revision);assertNotScheduled(current);assertImageFree(current);
+     const image=assets.fromDataUrl(b.dataUrl,id);
+     return json(res,store.setImage(id,b.revision,image,{origin:'upload',by:user.name}));
     }
-    if(req.method==='DELETE'&&action==='image')return json(res,store.change(id,b.revision,p=>{p.image=null;}));
+    if(req.method==='DELETE'&&action==='image')return json(res,store.setImage(id,b.revision,null,{origin:'manual',by:user.name}));
     if(req.method==='POST'&&action==='publish'){const result=await publisher.publish(id,b.revision,b.routeVersion);registry.sync();return json(res,result);}
     if(req.method==='POST'&&action==='reconcile'){const result=publisher.reconcile(id,b.revision,b.messageIds);registry.sync();return json(res,result);}
    }

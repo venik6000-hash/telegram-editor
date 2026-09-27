@@ -1,3 +1,5 @@
+import {hasMarkdownLinks,isLinkUrl} from './shared/links.mjs';
+
 export const TOPICS = [{id:'main',name:'Главная'}];
 export function fail(message, status=400) { throw Object.assign(new Error(message),{status}); }
 function isConfirmedPublication(post) {
@@ -9,21 +11,29 @@ export function assertEditable(p, revision) {
   if(p.status === 'working') fail('Пост занят: дождитесь агента или отмените задачу.',409);
   if(isConfirmedPublication(p)||['uncertain','publishing'].includes(p.status)) fail('Пост опубликован или отправка требует сверки. Изменения заблокированы.',409);
 }
+export function isScheduled(p) { return p?.status==='scheduled'&&p?.schedule?.status==='scheduled'; }
+export function assertNotScheduled(p) { if(isScheduled(p)) fail('Публикация запланирована. Снимите её с плана, чтобы менять материал.',409); }
+export function isImageJobRunning(p) { return p?.job?.status==='running'&&p.job.kind==='image'; }
+export function assertImageFree(p) { if(isImageJobRunning(p)) fail('Агент сейчас рисует картинку. Дождитесь результата или остановите задачу.',409); }
 export function topicName(id,topics=TOPICS) { return topics.find(t=>t.id===id)?.name || ''; }
+const ENTITY_TYPES=['bold','italic','blockquote','spoiler','text_link'];
+export const isHttpUrl=isLinkUrl;
 export function validateEntities(text, entities=[]) {
   if(!Array.isArray(entities)||entities.length>2000) fail('Некорректное форматирование.');
   const ranges=entities.map(entity=>{
-    const {type,offset,length}=entity||{};
-    if(!['bold','italic','blockquote','spoiler'].includes(type)||!Number.isInteger(offset)||!Number.isInteger(length)||offset<0||length<=0||offset+length>text.length)
+    const {type,offset,length,url}=entity||{};
+    if(!ENTITY_TYPES.includes(type)||!Number.isInteger(offset)||!Number.isInteger(length)||offset<0||length<=0||offset+length>text.length)
       fail('Некорректное форматирование.');
     for(const boundary of [offset,offset+length]) if(boundary>0&&boundary<text.length&&/[\uD800-\uDBFF]/.test(text[boundary-1])&&/[\uDC00-\uDFFF]/.test(text[boundary])) fail('Форматирование разрывает символ.');
-    return {type,offset,length};
+    if(type!=='text_link')return {type,offset,length};
+    if(!isHttpUrl(url))fail('Ссылка должна начинаться с http:// или https://.');
+    return {type,offset,length,url};
   });
   for(let i=0;i<ranges.length;i++)for(let j=i+1;j<ranges.length;j++) {
     const a=ranges[i],b=ranges[j],endA=a.offset+a.length,endB=b.offset+b.length;
     if(a.offset>=endB||b.offset>=endA)continue;
     const nested=(a.offset<=b.offset&&endA>=endB)||(b.offset<=a.offset&&endB>=endA);
-    if(!nested||(a.type==='blockquote'&&b.type==='blockquote'))fail('Диапазоны форматирования пересекаются.');
+    if(!nested||(a.type===b.type&&['blockquote','text_link'].includes(a.type)))fail('Диапазоны форматирования пересекаются.');
   }
   return ranges;
 }
@@ -35,7 +45,7 @@ export function partsFor(post) {
     const length=(part.type==='photo'?part.caption:part.text).length;
     const ranges=entities.flatMap(entity=>{
       const start=Math.max(offset,entity.offset),end=Math.min(offset+length,entity.offset+entity.length);
-      return end>start?[{type:entity.type,offset:start-offset,length:end-start}]:[];
+      return end>start?[{...entity,offset:start-offset,length:end-start}]:[];
     });
     if(ranges.length)part.entities=ranges;
     offset+=length;
@@ -81,7 +91,8 @@ export function publicationIssues(post,settings) {
  const issues=[];
  if(post.deletedAt) issues.push('Карточка в корзине.');
  if(!post.text.trim()) issues.push('Добавьте текст поста.');
- if(post.status==='working') issues.push('Дождитесь завершения агента.');
+ if(post.status==='working'||['running','working'].includes(post.job?.status)) issues.push('Дождитесь завершения агента.');
+ if(hasMarkdownLinks(post.text)) issues.push('В тексте остались Markdown-ссылки. Нажмите «Преобразовать ссылки».');
  if(isConfirmedPublication(post)||['publishing','uncertain'].includes(post.status)) issues.push('Повторная отправка заблокирована.');
  if(!settings.verified) issues.push('Проверьте подключение Telegram в настройках.');
  if(settings.destinationType!=='channel'&&!settings.topics[post.topic]) issues.push('Укажите ссылку на эту тему в настройках.');

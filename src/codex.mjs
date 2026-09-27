@@ -1,7 +1,7 @@
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {existsSync,readFileSync,mkdirSync,writeFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {join,basename} from 'node:path';
 import {homedir} from 'node:os';
 const exec=promisify(execFile);
 export function safeEnvironment(source=process.env) {
@@ -11,7 +11,7 @@ export function safeEnvironment(source=process.env) {
 }
 export function parseResult(raw,kind) {
  let result;try{result=JSON.parse(raw);}catch{throw new Error('Агент не вернул результат в ожидаемом формате. Повторите задачу.');}
- if(result.ready===false)throw new Error(String(result.needsInput||'Нужны дополнительные данные для поста.'));
+ if(result.ready===false){const question=String(result.needsInput||'').trim()||'Нужны дополнительные данные для поста.';throw Object.assign(new Error(question),{question});}
  if(kind==='duplicates') {
   if(!Array.isArray(result.duplicateIds)||result.duplicateIds.some(id=>typeof id!=='string'||!/^POST-\d{3,}(?:-[a-f0-9]{8})?$/.test(id))||typeof result.reason!=='string')throw new Error('Проверка повторов вернула некорректный результат.');
   return result;
@@ -24,7 +24,12 @@ export function parseResult(raw,kind) {
   }
   return result;
  }
- if(kind==='image') {if(typeof result.imagePath!=='string'||!result.imagePath)throw new Error('Агент не создал изображение.');return result;}
+ if(kind==='image') {
+  if(typeof result.imagePath!=='string'||!result.imagePath)throw new Error('Агент не создал изображение.');
+  result.usedAssets=Array.isArray(result.usedAssets)?[...new Set(result.usedAssets.filter(Number.isInteger))]:[];
+  result.note=typeof result.note==='string'?result.note.trim().slice(0,1000):'';
+  return result;
+ }
  if(typeof result.text!=='string'||!result.text.trim())throw new Error('Агент вернул пустой текст.');
  if(result.text.length>24000)throw new Error('Текст слишком длинный для редакции.');
  if(!Array.isArray(result.sources))throw new Error('Агент не указал список источников.');
@@ -33,13 +38,15 @@ export function parseResult(raw,kind) {
 }
 function resultProperties(kind) {
  const sources={type:'array',items:{type:'object',additionalProperties:false,properties:{title:{type:'string'},url:{type:'string'}},required:['title','url']}};
- if(kind==='image')return {imagePath:{type:'string'}};
+ if(kind==='image')return {imagePath:{type:'string'},usedAssets:{type:'array',items:{type:'integer'}},note:{type:'string'}};
  if(kind==='duplicates')return {duplicateIds:{type:'array',items:{type:'string'}},reason:{type:'string'}};
  if(kind==='ideas')return {ideas:{type:'array',items:{type:'object',additionalProperties:false,properties:{title:{type:'string'},brief:{type:'string'},sources},required:['title','brief','sources']}}};
  return {text:{type:'string'},sources};
 }
+// Since the September 2026 ChatGPT update the CLI lives in Resources/codex-cli/bin; older builds kept it in Resources.
+export const CODEX_PATHS=['/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex','/Applications/ChatGPT.app/Contents/Resources/codex','/Applications/Codex.app/Contents/Resources/codex-cli/bin/codex','/Applications/Codex.app/Contents/Resources/codex','/opt/homebrew/bin/codex','/usr/local/bin/codex'];
 function binary() {
- for(const path of ['/Applications/ChatGPT.app/Contents/Resources/codex','/Applications/Codex.app/Contents/Resources/codex','/opt/homebrew/bin/codex','/usr/local/bin/codex'])if(existsSync(path))return path;
+ for(const path of CODEX_PATHS)if(existsSync(path))return path;
  return 'codex';
 }
 export function editorAgentArgs({jobDir,schema,output}) {
@@ -67,7 +74,7 @@ export class CodexRunner {
   const args=editorAgentArgs({jobDir,schema,output});
   if(kind==='image') {
    for(const image of images) {
-    if(!existsSync(image))throw new Error('Не найден референс изображения: '+image);
+    if(!existsSync(image))throw new Error('Не найдено изображение для агента: '+basename(image));
     args.splice(args.length-1,0,'--image',image);
    }
   }
