@@ -1,15 +1,15 @@
 import {chmodSync,copyFileSync,existsSync,mkdirSync,readdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {assertEditable,fail,validateEntities} from './domain.mjs';
+import {assertEditable,assertNotScheduled,assertImageFree,fail,validateEntities} from './domain.mjs';
+import {applyChange,ensureVariants,onlyImageChangesSince,updateLogEntry} from './post-model.mjs';
+import {markdownLinksToEntities} from './shared/links.mjs';
+export {snapshot} from './post-model.mjs';
 
 const POST_ID=/^POST-\d{3,}(?:-[a-f0-9]{8})?$/;
+const SAVE_KEYS=['title','brief','text','entities','topic','assignedTo','dueAt'];
 const now=()=>new Date().toISOString();
 const contentSignature=post=>JSON.stringify([post.topic,post.title,post.brief,post.text,post.entities,post.image,post.sources]);
-export const snapshot=post=>({
-  revision:post.revision,topic:post.topic,title:post.title,brief:post.brief,text:post.text,entities:post.entities||[],image:post.image,
-  sources:post.sources,assignedTo:post.assignedTo??null,dueAt:post.dueAt??null,savedAt:post.updatedAt,
-});
 
 export class ProjectStore {
   constructor(database,projectId,{reservedIds=()=>[]}={}) {
@@ -29,12 +29,12 @@ export class ProjectStore {
     this.#validateId(id);
     const row=this.db.prepare('SELECT data FROM posts WHERE project_id=? AND id=?').get(this.projectId,id);
     if(!row)fail('Карточка не найдена.',404);
-    return JSON.parse(row.data);
+    return ensureVariants(JSON.parse(row.data));
   }
 
   list() {
     return this.db.prepare('SELECT data FROM posts WHERE project_id=?').all(this.projectId)
-      .map(row=>JSON.parse(row.data)).sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}));
+      .map(row=>ensureVariants(JSON.parse(row.data))).sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}));
   }
 
   create(data,id) {
@@ -65,33 +65,66 @@ export class ProjectStore {
     });
   }
 
-  save(id,patch,expectedRevision) {
-    const allowed=['title','brief','text','entities','topic','assignedTo','dueAt'];
-    for(const key of Object.keys(patch))if(!allowed.includes(key))fail('Недопустимое поле карточки.');
-    return this.change(id,expectedRevision,post=>{
-      for(const [key,value] of Object.entries(patch)) {
-        if(key==='entities')continue;
-        if(key==='assignedTo'&&value===null){post.assignedTo=null;continue;}
-        if(key==='topic') {if(typeof value!=='string'||!this.#topic(value))fail('Неизвестная тема.');post.topic=value;continue;}
-        if(key==='dueAt') {if(value!==null&&(typeof value!=='string'||!Number.isFinite(Date.parse(value))))fail('Некорректный срок.');post.dueAt=value;continue;}
-        if(typeof value!=='string'||value.length>(key==='title'?240:24000))fail('Некорректная длина текста.');
-        if(key==='title'&&!value.trim())fail('Введите название.');post[key]=value;
-      }
-      if(Object.hasOwn(patch,'entities'))post.entities=validateEntities(post.text,patch.entities);
-      else if(Object.hasOwn(patch,'text'))post.entities=[];
-    });
+  // A save based on an older revision is still applied when only the picture changed since then (an image job finished meanwhile).
+  save(id,patch,expectedRevision,{session=null,by=''}={}) {
+    for(const key of Object.keys(patch))if(!SAVE_KEYS.includes(key))fail('Недопустимое поле карточки.');
+    const current=this.get(id);
+    const base=current.revision!==expectedRevision&&onlyImageChangesSince(current,expectedRevision)?current.revision:expectedRevision;
+    assertEditable(current,base);assertNotScheduled(current);
+    const preview=structuredClone(current);this.#applyPatch(preview,patch);
+    if(SAVE_KEYS.every(key=>JSON.stringify(preview[key]??null)===JSON.stringify(current[key]??null)))return current;
+    return this.change(id,base,post=>this.#applyPatch(post,patch),{origin:'manual',session,by});
+  }
+
+  #applyPatch(post,patch) {
+    for(const [key,value] of Object.entries(patch)) {
+      if(key==='entities')continue;
+      if(key==='assignedTo'&&value===null){post.assignedTo=null;continue;}
+      if(key==='topic') {if(typeof value!=='string'||!this.#topic(value))fail('Неизвестная тема.');post.topic=value;continue;}
+      if(key==='dueAt') {if(value!==null&&(typeof value!=='string'||!Number.isFinite(Date.parse(value))))fail('Некорректный срок.');post.dueAt=value;continue;}
+      if(typeof value!=='string'||value.length>(key==='title'?240:24000))fail('Некорректная длина текста.');
+      if(key==='title'&&!value.trim())fail('Введите название.');post[key]=value;
+    }
+    if(Object.hasOwn(patch,'entities'))post.entities=validateEntities(post.text,patch.entities);
+    else if(Object.hasOwn(patch,'text'))post.entities=[];
   }
 
   #invalidateApproval(post) {post.approval=null;post.schedule=null;}
-  change(id,revision,fn) {
-    return this.mutate(id,post=>{assertEditable(post,revision);post.history.push(snapshot(post));fn(post);post.revision++;
+  change(id,revision,fn,options={}) {
+    return this.mutate(id,post=>{assertEditable(post,revision);assertNotScheduled(post);applyChange(post,options,fn);
       post.status=post.text.trim()?'review':'idea';this.#invalidateApproval(post);});
   }
-  restore(id,revision,restoreRevision) {return this.change(id,revision,post=>{
-    const old=post.history.find(item=>item.revision===restoreRevision);if(!old)fail('Версия не найдена.',404);
-    post.entities=old.entities||[];
-    for(const key of ['topic','title','brief','text','image','sources','assignedTo','dueAt'])if(Object.hasOwn(old,key))post[key]=old[key];
-  });}
+
+  restore(id,revision,restoreRevision,fields=null) {
+    if(fields!==null&&(!Array.isArray(fields)||fields.length!==1||fields[0]!=='text'))fail('Можно вернуть всю версию или только текст.');
+    assertImageFree(this.get(id));
+    return this.change(id,revision,post=>{
+      const old=post.history.find(item=>item.revision===restoreRevision);if(!old)fail('Версия не найдена.',404);
+      post.entities=old.entities||[];
+      if(fields){post.text=old.text;return;}
+      for(const key of ['topic','title','brief','text','image','sources','assignedTo','dueAt'])if(Object.hasOwn(old,key))post[key]=old[key];
+    },{origin:'restore'});
+  }
+
+  setImage(id,revision,image,{origin='upload',by=''}={}) {
+    assertImageFree(this.get(id));
+    return this.change(id,revision,post=>{post.image=image;},{origin,by});
+  }
+
+  selectVariant(id,revision,name,{by=''}={}) {
+    const current=this.get(id);assertEditable(current,revision);assertImageFree(current);
+    const variant=current.imageVariants.find(item=>item.name===name);if(!variant)fail('Вариант картинки не найден.',404);
+    if(current.image?.name===name)return current;
+    return this.change(id,revision,post=>{post.image={name:variant.name,url:variant.url};},{origin:'variant',by});
+  }
+
+  convertLinks(id,revision,{by=''}={}) {
+    return this.change(id,revision,post=>{
+      const result=markdownLinksToEntities(post.text,post.entities||[]);
+      if(!result.converted)fail('Markdown-ссылок в тексте нет.');
+      post.text=result.text;post.entities=validateEntities(result.text,result.entities);
+    },{origin:'links',by});
+  }
 
   trash(items) {
     if(!Array.isArray(items)||!items.length||items.length>500||new Set(items.map(item=>item?.id)).size!==items.length)fail('Выберите от 1 до 500 разных карточек.');
@@ -144,12 +177,13 @@ export class ProjectStore {
   }
 
   recover() {for(const post of this.list()) {
-    if(post.status==='working')this.mutate(post.id,value=>{
+    if(post.status==='working'||post.job?.status==='running')this.mutate(post.id,value=>{
       const error='Приложение закрылось во время подготовки. Запустите задачу ещё раз.';
       value.status=value.text||value.image?'review':'idea';value.approval=null;value.schedule=null;
       if(value.job){
         if(value.job.tasks)for(const task of Object.values(value.job.tasks))if(['queued','running'].includes(task.status)){task.status='failed';task.phase='Прервано после перезапуска';task.error=error;}
         value.job.status='failed';value.job.phase='Нужна ваша проверка';value.job.error=error;value.job.finishedAt=now();
+        updateLogEntry(value,value.job.id,{status:'failed',phase:'Прервано после перезапуска',error,finishedAt:value.job.finishedAt});
       }
     });
     if(post.status==='publishing')this.mutate(post.id,value=>{value.status='uncertain';value.publication.status='uncertain';value.publication.error='Приложение закрылось во время отправки. Проверьте сообщения в Telegram.';});

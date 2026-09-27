@@ -13,6 +13,7 @@ export class Scheduler {
  approve(id,revision,actor) {
   const post=this.store.get(id);assertEditable(post,revision);
   if(!String(post.text||'').trim())fail('Добавьте текст поста.');
+  if(post.job?.status==='running')fail('Дождитесь завершения агента.',409);
   const approvedAt=new Date(this.now()).toISOString();
   return this.store.mutate(id,d=>{d.approval={revision,actor:String(actor||''),at:approvedAt};d.schedule=null;d.status='approved';});
  }
